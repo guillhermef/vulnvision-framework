@@ -44,12 +44,12 @@ def sort_subdomains(home_dir, args):
         print(f"Anew failed to build a sorted list of subdomains! -> {args.domain}")
 
 
-def cleanup():
-    subprocess.run(["rm wordlists/crawl_*"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
-    subprocess.run(["rm wordlists/cewl_*"],  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
-    subprocess.run(["rm wordlists/live_*"],  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
-    subprocess.run(["rm temp/*.tmp"],  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
-    subprocess.run(["rm log/nuclei*.dump"],  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+def cleanup(home_dir, args):
+    subprocess.run([f"rm wordlists/crawl_*"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+    subprocess.run([f"rm wordlists/cewl_*"],  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+    subprocess.run([f"rm wordlists/live_*"],  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+    subprocess.run([f"rm {home_dir}/recon/data/{args.domain}/temp/*.tmp"],  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
+    subprocess.run([f"rm log/nuclei*.dump"],  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True)
 
 
 def send_slack_notification(home_dir, text):
@@ -167,9 +167,26 @@ def shuffle_dns_custom(args, home_dir):
     except Exception as e:
         print(f"[!] ShuffleDNS w/ custom wordlist failed!\n[!] Exception: {str(e)}")
 
+def naabu(args, home_dir):
+    try:
+        subprocess.run([f'{home_dir}/go/bin/naabu -l {home_dir}/recon/data/{args.domain}/temp/uniques.tmp -tp 100  -o {home_dir}/recon/data/{args.domain}/temp/naabu_ports.tmp'], shell=True)
+        try:
+            f = open(f"{home_dir}/recon/data/{args.domain}/temp/naabu_ports.tmp", "r")
+        except:
+            print("[!] No results found from the naabu port scan...")
+            return False
+        naabu_arr = f.read().rstrip().split("\n")
+        f.close()
+        naabu_arr = [item for item in naabu_arr if item != ""]
+        subdomains_found = len(naabu_arr)
+        text = f"Naabu completed successfully: {subdomains_found} results found."
+        print(text)
+    except Exception as e:
+        print(f"[!] Naabu failed!\n[!] Exception: {str(e)}")
+
 def httpx(args, home_dir):
     try:
-        subprocess.run([f'{home_dir}/go/bin/httpx -l {home_dir}/recon/data/{args.domain}/temp/uniques.tmp -t 500 -r wordlists/resolvers.txt -o {home_dir}/recon/data/{args.domain}/alive_subdomains.txt'], shell=True)
+        subprocess.run([f'{home_dir}/go/bin/httpx -l {home_dir}/recon/data/{args.domain}/temp/naabu_ports.tmp -t 500 -r wordlists/resolvers.txt -o {home_dir}/recon/data/{args.domain}/alive_subdomains.txt'], shell=True)
         try:
             f = open(f"{home_dir}/recon/data/{args.domain}/alive_subdomains.txt", "r")
         except:
@@ -179,7 +196,7 @@ def httpx(args, home_dir):
         f.close()
         httpx_arr = [item for item in httpx_arr if item != ""]
         subdomains_found = len(httpx_arr)
-        text_slack = f"Httpx completed successfully: *{subdomains_found}* results found. \nTarget: *{args.domain}*"
+        text_slack = f"Recon scan completed! \n\nTarget: *{args.domain}*. \nFound *{subdomains_found}* uniques subdomains. \n\nGood luck and happy hunting :D"
         text = f"Httpx completed successfully: {subdomains_found} results found."
         print(text)
         send_slack_notification(get_home_dir(), text_slack)
@@ -234,6 +251,13 @@ def main(args):
         shuffle_dns(args, get_home_dir())
     except Exception as e:
         print(f"[!] Exception: {e}")
+
+    try:
+        print(f"[-] Running naabu against {args.domain}")
+        naabu(args, get_home_dir())
+    except Exception as e:
+        print(f"[!] Exception: {e}")
+
     try:
         print(f"[-] Running httpx against {args.domain}")
         sort_subdomains(get_home_dir(), args)
@@ -241,9 +265,9 @@ def main(args):
     except Exception as e:
         print(f"[!] Exception: {e}")
 
-    cleanup()
+    cleanup(get_home_dir(), args)
 
 if __name__ == "__main__":
     args = arg_parse()
     main(args)
-
+    
