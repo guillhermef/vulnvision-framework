@@ -64,6 +64,40 @@ def send_slack_notification(home_dir, text):
 
 #################################### TOOLS ####################################
 
+def extract_subdomains(url, domain):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        pattern = re.compile(rf'[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*\.{domain}')
+        return set(pattern.findall(response.text))
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching subdomains from {url}: {e}")
+        return set()
+
+
+def apis(args, home_dir):
+    all_subdomains = set()
+    
+    apis = [
+        f'https://rapiddns.io/subdomain/{args.domain}?full=1#result',
+        f'http://web.archive.org/cdx/search/cdx?url=*.{args.domain}/*&output=text&fl=original&collapse=urlkey',
+        f'https://crt.sh/?q=%.{args.domain}',
+        f'https://crt.sh/?q=%.%.{args.domain}',
+        f'https://crt.sh/?q=%.%.%.{args.domain}',
+        f'https://crt.sh/?q=%.%.%.%.{args.domain}',
+        f'https://otx.alienvault.com/api/v1/indicators/domain/{args.domain}/passive_dns',
+        f'https://api.hackertarget.com/hostsearch/?q={args.domain}',
+        f'https://urlscan.io/api/v1/search/?q={args.domain}',
+        f'https://jldc.me/anubis/subdomains/{args.domain}'
+    ]
+    
+    for url in apis:
+        subdomains = extract_subdomains(url, args.domain)
+        all_subdomains.update(subdomains)
+        with open (f"{home_dir}/recon/data/{args.domain}/temp/apis_subdomains.tmp", 'w') as file:
+            for subs in all_subdomains:
+                file.write(f"{subs}\n")
+
 def subfinder(args, home_dir):
     try:
         subprocess.run([f'{home_dir}/go/bin/subfinder -d {args.domain} -o {home_dir}/recon/data/{args.domain}/temp/subfinder.tmp'], shell=True)
@@ -253,14 +287,20 @@ def main(args):
         print(f"[!] Exception: {e}")
 
     try:
+        print(f"[-] Running recon on api's {args.domain}")
+        apis(args, get_home_dir())
+    except Exception as e:
+        print(f"[!] Exception: {e}")
+
+    try:
         print(f"[-] Running naabu against {args.domain}")
+        sort_subdomains(get_home_dir(), args)
         naabu(args, get_home_dir())
     except Exception as e:
         print(f"[!] Exception: {e}")
 
     try:
         print(f"[-] Running httpx against {args.domain}")
-        sort_subdomains(get_home_dir(), args)
         httpx(args, get_home_dir())
     except Exception as e:
         print(f"[!] Exception: {e}")
@@ -270,4 +310,4 @@ def main(args):
 if __name__ == "__main__":
     args = arg_parse()
     main(args)
-    
+
